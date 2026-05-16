@@ -42,6 +42,10 @@ expands to:
 bin/wt ../aaa/bbb aaa/bbb main
 ```
 
+After creating the worktree, `wt` enters the new directory when you run it in
+an interactive terminal. If you call it from a non-interactive script, it
+prints the `cd` command instead.
+
 ## `.git-worktree-copy`
 
 Inside any repository where you use `wt`, create a file named
