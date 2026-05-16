@@ -39,3 +39,33 @@ tmp/fixtures
 ```
 
 Blank lines and lines starting with `#` are ignored.
+
+Each non-comment line should be a path relative to the repository root. The
+path can point to either:
+
+- a file, such as `.env.local`
+- a directory, such as `tmp/fixtures`
+
+When you run `wt`, the script first creates the new worktree with `git worktree
+add`, then it reads `.git-worktree-copy` from the original repository and
+copies every listed path into the new worktree at the same relative location.
+
+This is mainly helpful for local-only files that are not committed to Git but
+that you still want available in every new worktree, for example:
+
+- local environment files
+- development secrets
+- generated fixtures
+- machine-specific config
+
+Example workflow:
+
+```bash
+cd my-repo
+printf ".env.local\nconfig/dev-secrets.json\n" > .git-worktree-copy
+wt ../my-repo-feature feature/api-cleanup main
+```
+
+If `my-repo/.env.local` exists, it will be copied to
+`../my-repo-feature/.env.local`. If a listed path does not exist, `wt` skips it
+and prints a message.
