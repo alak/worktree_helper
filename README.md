@@ -17,6 +17,8 @@ every worktree without committing them.
 
 ```bash
 bin/wt <path> <branch-name> [base-branch]
+bin/wt -s <branch-name>
+bin/wt --short <branch-name>
 ```
 
 Examples:
@@ -24,6 +26,20 @@ Examples:
 ```bash
 bin/wt ../my-feature feature/api-cleanup
 bin/wt ../my-feature feature/api-cleanup main
+bin/wt -s feature/api-cleanup
+```
+
+Short mode is a convenience form for creating feature worktrees from `main`.
+This command:
+
+```bash
+bin/wt -s aaa/bbb
+```
+
+expands to:
+
+```bash
+bin/wt ../aaa/bbb aaa/bbb main
 ```
 
 ## `.git-worktree-copy`
