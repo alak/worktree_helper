@@ -19,6 +19,8 @@ every worktree without committing them.
 bin/wt <path> <branch-name> [base-branch]
 bin/wt -s <branch-name>
 bin/wt --short <branch-name>
+bin/wt -p [base-branch] [--dry-run] [--force-dirty]
+bin/wt --prune [base-branch] [--dry-run] [--force-dirty]
 ```
 
 Examples:
@@ -27,6 +29,10 @@ Examples:
 bin/wt ../my-feature feature/api-cleanup
 bin/wt ../my-feature feature/api-cleanup main
 bin/wt -s feature/api-cleanup
+bin/wt --prune
+bin/wt --prune main
+bin/wt --prune main --dry-run
+bin/wt --prune main --force-dirty
 ```
 
 Short mode is a convenience form for creating feature worktrees from `main`.
@@ -45,6 +51,51 @@ bin/wt ../aaa/bbb aaa/bbb main
 After creating the worktree, `wt` enters the new directory when you run it in
 an interactive terminal. If you call it from a non-interactive script, it
 prints the `cd` command instead.
+
+## Cleanup Merged Worktrees
+
+Use prune mode to remove linked worktrees whose branches have already been
+merged into a base branch:
+
+```bash
+bin/wt --prune
+bin/wt --prune main
+bin/wt --prune main --dry-run
+bin/wt --prune main --force-dirty
+```
+
+By default, prune mode uses `main` as the merge target. For each linked
+worktree, `wt` will:
+
+- skip the main repository worktree
+- skip the current worktree and current branch
+- skip dirty worktrees with uncommitted changes
+- skip branches that are neither ancestry-merged nor patch-equivalent to the base branch
+- remove the worktree for merged branches
+- delete the merged local branch
+- run `git worktree prune` at the end
+
+This makes it easy to clean up feature worktrees after they have landed.
+
+Patch-equivalent branches are branches whose changes already landed in the base
+branch through squash, cherry-pick, or rebase-style history, even if the exact
+branch commit is not an ancestor of the base branch.
+
+Use `--dry-run` to preview what would be removed without changing anything:
+
+```bash
+bin/wt --prune main --dry-run
+```
+
+Use `--force-dirty` to also remove merged worktrees that still have uncommitted
+changes:
+
+```bash
+bin/wt --prune main --force-dirty
+```
+
+This is intentionally sharp: it allows `git worktree remove --force`, so local
+uncommitted changes in those merged worktrees will be discarded.
 
 ## `.git-worktree-copy`
 
