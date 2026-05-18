@@ -21,6 +21,9 @@ bin/wt -s <branch-name>
 bin/wt --short <branch-name>
 bin/wt -p [base-branch] [--dry-run] [--force-dirty]
 bin/wt --prune [base-branch] [--dry-run] [--force-dirty]
+bin/wt -d [branch-name|path] [--force-dirty]
+bin/wt -D [branch-name|path] [--force-dirty]
+bin/wt --delete [branch-name|path] [--force-dirty]
 ```
 
 Examples:
@@ -33,6 +36,9 @@ bin/wt --prune
 bin/wt --prune main
 bin/wt --prune main --dry-run
 bin/wt --prune main --force-dirty
+bin/wt --delete
+bin/wt -D alak/web-call-info
+bin/wt --delete alak/web-call-info
 ```
 
 Short mode is a convenience form for creating feature worktrees from `main`.
@@ -96,6 +102,35 @@ bin/wt --prune main --force-dirty
 
 This is intentionally sharp: it allows `git worktree remove --force`, so local
 uncommitted changes in those merged worktrees will be discarded.
+
+## Delete A Specific Worktree
+
+Use delete mode when you want to remove one chosen worktree instead of pruning
+all merged ones:
+
+```bash
+bin/wt --delete
+bin/wt --delete alak/web-call-info
+bin/wt --delete /full/path/to/worktree
+```
+
+With no argument, `wt --delete` shows an interactive list of linked worktrees.
+Use the up/down arrow keys to choose one, then press Enter. You can also pass
+either the branch name or the worktree path directly.
+
+Delete mode:
+
+- never deletes the main repository worktree
+- refuses to delete the current worktree
+- refuses to delete dirty worktrees unless you pass `--force-dirty`
+- removes the selected worktree
+- deletes the selected local branch
+
+If you need to discard uncommitted changes in the selected worktree, use:
+
+```bash
+bin/wt --delete alak/web-call-info --force-dirty
+```
 
 ## `.git-worktree-copy`
 

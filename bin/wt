@@ -23,6 +23,9 @@ Usage: wt <path> <branch-name> [base-branch]
        wt --short <branch-name>
        wt -p [base-branch] [--dry-run] [--force-dirty]
        wt --prune [base-branch] [--dry-run] [--force-dirty]
+       wt -d [branch-name|path] [--force-dirty]
+       wt -D [branch-name|path] [--force-dirty]
+       wt --delete [branch-name|path] [--force-dirty]
 
 Create a git worktree for a new branch, then copy any paths listed in
 .git-worktree-copy from the source repository into the new worktree.
@@ -35,6 +38,9 @@ Examples:
   wt --prune main
   wt --prune main --dry-run
   wt --prune main --force-dirty
+  wt --delete
+  wt -D alak/web-call-info
+  wt --delete alak/web-call-info
 
 Interactive behavior:
   When run in a terminal, wt opens a shell in the new worktree directory.
@@ -43,6 +49,7 @@ EOF
 
 SHORT_MODE=0
 PRUNE_MODE=0
+DELETE_MODE=0
 DRY_RUN=0
 FORCE_DIRTY=0
 
@@ -60,6 +67,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     -p|--prune)
       PRUNE_MODE=1
+      shift
+      ;;
+    -d|-D|--delete)
+      DELETE_MODE=1
       shift
       ;;
     --dry-run)
@@ -89,10 +100,219 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-set -- "${POSITIONAL_ARGS[@]}"
+if [ "${#POSITIONAL_ARGS[@]}" -gt 0 ]; then
+  set -- "${POSITIONAL_ARGS[@]}"
+else
+  set --
+fi
 
 ROOT="$(git rev-parse --show-toplevel)"
 COPY_LIST="$ROOT/.git-worktree-copy"
+
+delete_worktree() {
+  local target="${1:-}"
+  local force_dirty="${2:-0}"
+  local current_pwd
+  local cursor=""
+  local delete_branch=""
+  local delete_path=""
+  local dirty_state=""
+  local is_current="0"
+  local is_dirty="0"
+  local key=""
+  local list_index=0
+  local list_size=0
+  local marker=""
+  local move_up=""
+  local read_status=0
+  local idx=1
+  local root_abs
+  local branch_name
+  local worktree_path
+  local status_label=""
+  local confirm
+  local -a worktree_branches=()
+  local -a worktree_paths=()
+  local -a worktree_statuses=()
+
+  root_abs="$(cd "$ROOT" && pwd)"
+  current_pwd="$(pwd -P)"
+
+  while IFS=$'\t' read -r branch_name worktree_path; do
+    [ -z "$branch_name" ] && continue
+    [ "$worktree_path" = "$root_abs" ] && continue
+
+    if [ -n "$target" ]; then
+      if [ "$target" = "$branch_name" ] || [ "$target" = "$worktree_path" ]; then
+        delete_branch="$branch_name"
+        delete_path="$worktree_path"
+        break
+      fi
+    else
+      if [ -n "$(git -C "$worktree_path" status --porcelain 2>/dev/null)" ]; then
+        status_label="dirty"
+      else
+        status_label="clean"
+      fi
+
+      if [ "$current_pwd" = "$worktree_path" ]; then
+        status_label="$status_label, current"
+      fi
+
+      worktree_branches+=("$branch_name")
+      worktree_paths+=("$worktree_path")
+      worktree_statuses+=("$status_label")
+      idx=$((idx + 1))
+    fi
+  done < <(
+    git -C "$ROOT" worktree list --porcelain | awk '
+      /^worktree / { wt = substr($0, 10) }
+      /^branch refs\/heads\// { print substr($0, 19) "\t" wt }
+    '
+  )
+
+  if [ -z "$target" ]; then
+    if [ "${#worktree_branches[@]}" -eq 0 ]; then
+      echo "No linked worktrees available to delete."
+      finish 0
+    fi
+
+    if ! [ -t 0 ] || ! [ -t 1 ]; then
+      echo "Error: wt --delete requires a TTY when no branch or path is provided." >&2
+      finish 1
+    fi
+
+    list_size="${#worktree_branches[@]}"
+    printf 'Use arrow keys to choose a worktree, then press Enter.\n\n'
+    cursor=0
+
+    while true; do
+      for ((idx = 0; idx < list_size; idx++)); do
+        if [ "$idx" -eq "$cursor" ]; then
+          marker="> "
+        else
+          marker="  "
+        fi
+
+        printf '%s%s -> %s [%s]\n' \
+          "$marker" \
+          "${worktree_branches[$idx]}" \
+          "${worktree_paths[$idx]}" \
+          "${worktree_statuses[$idx]}"
+      done
+
+      read_status=0
+      IFS= read -rsn1 key || read_status=$?
+
+      if [ "${read_status:-0}" -ne 0 ]; then
+        echo
+        finish 1
+      fi
+
+      case "$key" in
+        "")
+          delete_branch="${worktree_branches[$cursor]}"
+          delete_path="${worktree_paths[$cursor]}"
+          break
+          ;;
+        $'\x1b')
+          IFS= read -rsn2 key || true
+          case "$key" in
+            '[A')
+              if [ "$cursor" -gt 0 ]; then
+                cursor=$((cursor - 1))
+              else
+                cursor=$((list_size - 1))
+              fi
+              ;;
+            '[B')
+              if [ "$cursor" -lt $((list_size - 1)) ]; then
+                cursor=$((cursor + 1))
+              else
+                cursor=0
+              fi
+              ;;
+            *)
+              ;;
+          esac
+          ;;
+        q|Q)
+          echo
+          echo "Cancelled."
+          finish 0
+          ;;
+        *)
+          ;;
+      esac
+
+      move_up=$((list_size))
+      printf '\033[%sA' "$move_up"
+      printf '\033[J'
+    done
+
+    printf '\033[%sA' "$list_size"
+    printf '\033[J'
+    printf 'Selected: %s -> %s [%s]\n' \
+      "$delete_branch" \
+      "$delete_path" \
+      "${worktree_statuses[$cursor]}"
+  fi
+
+  if [ -z "$delete_branch" ] || [ -z "$delete_path" ]; then
+    echo "Error: worktree not found: ${target:-selection}" >&2
+    finish 1
+  fi
+
+  if [ "$delete_path" = "$root_abs" ]; then
+    echo "Error: refusing to delete the main repository worktree." >&2
+    finish 1
+  fi
+
+  if [ "$current_pwd" = "$delete_path" ]; then
+    is_current="1"
+  fi
+
+  if [ -n "$(git -C "$delete_path" status --porcelain 2>/dev/null)" ]; then
+    is_dirty="1"
+  fi
+
+  if [ "$is_current" = "1" ]; then
+    echo "Error: refusing to delete the current worktree: $delete_path" >&2
+    finish 1
+  fi
+
+  if [ "$is_dirty" = "1" ] && [ "$force_dirty" -ne 1 ]; then
+    echo "Error: worktree is dirty: $delete_path" >&2
+    echo "Re-run with --force-dirty to discard local changes." >&2
+    finish 1
+  fi
+
+  if [ -t 0 ] && [ -t 1 ]; then
+    printf 'Delete worktree %s (%s)? [y/N]: ' "$delete_branch" "$delete_path"
+    read -r confirm
+
+    case "$confirm" in
+      y|Y|yes|YES)
+        ;;
+      *)
+        echo "Cancelled."
+        finish 0
+        ;;
+    esac
+  fi
+
+  if [ "$is_dirty" = "1" ] && [ "$force_dirty" -eq 1 ]; then
+    git -C "$ROOT" worktree remove --force "$delete_path"
+    git -C "$ROOT" branch -D "$delete_branch"
+    echo "Removed dirty worktree: $delete_path ($delete_branch)"
+  else
+    git -C "$ROOT" worktree remove "$delete_path"
+    git -C "$ROOT" branch -D "$delete_branch"
+    echo "Removed worktree: $delete_path ($delete_branch)"
+  fi
+
+  finish 0
+}
 
 prune_worktrees() {
   local base_branch="${1:-main}"
@@ -214,12 +434,21 @@ prune_worktrees() {
 }
 
 if [ "$PRUNE_MODE" -eq 1 ]; then
-  if [ "$SHORT_MODE" -eq 1 ] || [ "$#" -gt 2 ]; then
+  if [ "$SHORT_MODE" -eq 1 ] || [ "$DELETE_MODE" -eq 1 ] || [ "$#" -gt 2 ]; then
     usage
     finish 1
   fi
 
   prune_worktrees "${1:-main}" "$DRY_RUN" "$FORCE_DIRTY"
+fi
+
+if [ "$DELETE_MODE" -eq 1 ]; then
+  if [ "$SHORT_MODE" -eq 1 ] || [ "$PRUNE_MODE" -eq 1 ] || [ "$DRY_RUN" -eq 1 ] || [ "$#" -gt 1 ]; then
+    usage
+    finish 1
+  fi
+
+  delete_worktree "${1:-}" "$FORCE_DIRTY"
 fi
 
 if [ "$SHORT_MODE" -eq 1 ]; then
